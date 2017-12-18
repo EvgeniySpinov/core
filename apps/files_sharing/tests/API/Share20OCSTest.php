@@ -36,6 +36,7 @@ use OCP\IUser;
 use OCP\IUserManager;
 use OCP\Lock\LockedException;
 use OCP\Share;
+use Symfony\Component\EventDispatcher\GenericEvent;
 use Test\TestCase;
 
 /**
@@ -2821,5 +2822,49 @@ class Share20OCSTest extends TestCase {
 		$result = $this->invokePrivate($ocs, 'formatShare', [$share]);
 
 		$this->assertEquals($expectedInfo, $result['share_with_additional_info']);
+	}
+
+	public function testCreateShareNotAllowed() {
+
+		$share = $this->newShare();
+		$this->shareManager->method('newShare')->willReturn($share);
+
+		$this->request
+			->method('getParam')
+			->will($this->returnValueMap([
+				['path', null, 'valid-path'],
+				['permissions', null, \OCP\Constants::PERMISSION_ALL],
+				['shareType', $this->any(), Share::SHARE_TYPE_USER],
+				['shareWith', $this->any(), 'invalidUser'],
+			]));
+
+		$userFolder = $this->createMock('\OCP\Files\Folder');
+		$this->rootFolder->expects($this->once())
+			->method('getUserFolder')
+			->with('currentUser')
+			->willReturn($userFolder);
+
+		$path = $this->createMock('\OCP\Files\File');
+		$storage = $this->createMock('OCP\Files\Storage');
+		$storage->method('instanceOfStorage')
+			->with('OCA\Files_Sharing\External\Storage')
+			->willReturn(false);
+		$path->method('getStorage')->willReturn($storage);
+
+		$expected = new \OC\OCS\Result(null, 404, 'No permission to create share');
+
+		$calledCreateEvent = [];
+		\OC::$server->getEventDispatcher()->addListener('file.beforecreateShare', function (GenericEvent $event) use (&$calledCreateEvent) {
+			$calledCreateEvent[] = "file.beforecreateShare";
+			$event->setArgument('run', false);
+			$calledCreateEvent[] = $event;
+		});
+		$result = $this->ocs->createShare();
+
+		$this->assertEquals($expected->getMeta(), $result->getMeta());
+		$this->assertEquals($expected->getData(), $result->getData());
+		$this->assertEquals('file.beforecreateShare', $calledCreateEvent[0]);
+		$this->assertInstanceOf(GenericEvent::class, $calledCreateEvent[1]);
+		$this->assertArrayHasKey('run', $calledCreateEvent[1]);
 	}
 }

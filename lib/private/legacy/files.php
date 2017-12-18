@@ -139,6 +139,13 @@ class OC_Files {
 				}
 			}
 
+			//Dispatch an event to see if any apps have problem with download
+			$event = new \Symfony\Component\EventDispatcher\GenericEvent(null, ['files' => $files]);
+			OC::$server->getEventDispatcher()->dispatch('file.beforecreatezip', $event);
+			if ($event->hasArgument('run') and ($event->getArgument('run') === false) and ($event->hasArgument('message'))) {
+				throw new Exception();
+			}
+
 			$streamer = new Streamer();
 			OC_Util::obEnd();
 
@@ -183,6 +190,9 @@ class OC_Files {
 			OC::$server->getLogger()->logException($ex);
 			$l = \OC::$server->getL10N('core');
 			$hint = method_exists($ex, 'getHint') ? $ex->getHint() : '';
+			if ($event->hasArgument('message')) {
+				$hint .= ' ' . $event->getArgument('message');
+			}
 			\OC_Template::printErrorPage($l->t('File cannot be read'), $hint);
 		}
 	}
